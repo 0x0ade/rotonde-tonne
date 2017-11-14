@@ -175,7 +175,7 @@ async function main() {
         var stream = twitter.stream(src.endpoint, args);
         stream.on('error', err => { throw err; });
         stream.on('data', event => {
-            if (!(event && event.contributors !== undefined && event.id_str && event.user && event.text))
+            if (!(event && event.contributors !== undefined && event.id_str && event.user && (event.full_text || event.text)))
                 return;
             convertTweet(event);
             queueSave();
