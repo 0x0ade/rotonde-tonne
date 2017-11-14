@@ -57,11 +57,7 @@ fs.mkdir(root, async (err) => {
     fs.mkdirSyncNexist(path.resolve(root, 'media'));
     fs.mkdirSyncNexist(path.resolve(root, 'media', 'content'));
     fs.mkdirSyncNexist(path.resolve(root, 'media', 'content', 'inline'));
-    fs.mkdirSyncNexist(path.resolve(root, 'links'));
-
-    await copyFile(path.resolve('icons', 'icon.svg'), path.resolve(root, 'media', 'content', 'icon.svg'));
-    await copyFile(path.resolve('icons', 'retweet.svg'), path.resolve(root, 'media', 'content', 'inline', 'retweet.svg'));    
-    await copyFile(path.resolve('icons', 'twitter.svg'), path.resolve(root, 'media', 'content', 'inline', 'twitter.svg'));    
+    fs.mkdirSyncNexist(path.resolve(root, 'links')); 
 
     if (config.tonne.datopts) {
         Dat(root, config.tonne.datopts, (err, dat_) => {
@@ -107,15 +103,10 @@ async function main() {
     try {
         portal = JSON.parse(fs.readFileSync(path.resolve(root, 'portal.json')));
         tonne = portal.tonne;
-        console.log('Data loaded. Handle: ', tonne.handle);
     } catch (err) {
+        // If it's our first time, save & sync after connecting.
         firstTime = true;
-        try {
-            await firstTimeSetup();
-        } catch (err) {
-            // Make node.js shut up about the uncatched rejection...
-            throw err;
-        }
+        firstTimeSetup();
     }
 
     portal.client_version = `tonne: ${version}`;
@@ -125,6 +116,12 @@ async function main() {
     } catch (err) {
         // Make node.js shut up about the uncatched rejection...        
     }
+
+    fs.writeFileSync(path.resolve(root, 'dat.json'), JSON.stringify({
+        url: `dat://${hash}/`,
+        title: `@${tonne.twitter.handle}/tonne`,
+        description: "rotonde ⇄ twitter"
+    }));
 
     if (firstTime)
         save();
@@ -183,8 +180,7 @@ async function main() {
     });
 }
 
-function firstTimeSetup() { return new Promise((resolve, reject) => {
-    console.log('Performing first time setup...');
+function firstTimeSetup() {
     portal = {
         name: '???/tonne',
         desc: 'rotonde ⇄ twitter',
@@ -195,7 +191,7 @@ function firstTimeSetup() { return new Promise((resolve, reject) => {
 
         tonne: { }
     };
-});}
+}
 
 function connectTwitter() { return new Promise((resolve, reject) => {
     twitter.get('account/settings', (err, settings, raw) => {

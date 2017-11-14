@@ -59,4 +59,7 @@ typings/
 
 # Tonne
 config.json
-tonne/
+tonne/.dat
+tonne/dat.json
+tonne/portal.json
+tonne/config.json
