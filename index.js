@@ -235,7 +235,7 @@ function addEntry(from, id, entry) {
     portal.feed = portal.feed.sort((a, b) => a.timestamp < b.timestamp ? -1 : 1);
     var over = portal.feed.length - config.tonne.max;
     if (over > 0)
-        portal.feed.splice(config.tonne.max - 1, over);
+        portal.feed.splice(0, over);
 }
 
 function unescapeHTML(m) {
