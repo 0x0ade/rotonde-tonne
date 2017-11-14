@@ -2,20 +2,22 @@
     "tonne": {
         "root": "tonne",
         "datopts": null,
-        "timelines": [ "home", "user", "mentions" ],
-        "mydat": "dat://ced1c0e68460000e6fb5d5723a991ecac057b76f4eee0f8ff12c2dc3c5a3ff35/"
+        "mydat": "dat://ced1c0e68460000e6fb5d5723a991ecac057b76f4eee0f8ff12c2dc3c5a3ff35/",        
+        "delay_sync": 20000,
+        "max": 40
     },
     "twitter": {
+        "polls": [ 
+            { "endpoint": "statuses/mentions_timeline", "args": { "count": 40 } }
+        ],
+        "streams": [ 
+            { "endpoint": "user", "args": { "replies": true } }
+        ],
         "api": {
             "consumer_key": "",
             "consumer_secret": "",
             "access_token_key": "",
             "access_token_secret": ""
-        },
-        "poll": {
-            "count": 20
-        },
-        "stream": {
         }
     }
 }

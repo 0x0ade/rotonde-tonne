@@ -85,9 +85,17 @@ fs.mkdir(root, async (err) => {
     }
 });
 
-function save() {
+function save(sync = true) {
     fs.writeFileSync(path.resolve(root, 'portal.json'), JSON.stringify(portal));
-    dat.importFiles();
+    if (sync)
+        dat.importFiles();
+    queuedSave = 0;
+}
+var queuedSave;
+function queueSave() {
+    if (queuedSave)
+        return;
+    queuedSave = setTimeout(() => save(), config.tonne.delay_sync);
 }
 
 async function main() {
@@ -95,98 +103,141 @@ async function main() {
     hash = dat.key.toString('hex');
     console.log(`Connected as: dat://${hash}/`);
 
+    var firstTime = false;
     try {
         portal = JSON.parse(fs.readFileSync(path.resolve(root, 'portal.json')));
         tonne = portal.tonne;
         console.log('Data loaded. Handle: ', tonne.handle);
     } catch (err) {
+        firstTime = true;
         try {
             await firstTimeSetup();
         } catch (err) {
             // Make node.js shut up about the uncatched rejection...
             throw err;
         }
-        save();
     }
+
     portal.client_version = `tonne: ${version}`;
 
-    portal.feed = [];
-    var configPoll = config.twitter.poll || {};
-    configPoll.tweet_mode = getDefault(configPoll.tweet_mode, 'extended');
-    config.tonne.timelines.forEach(timelineName => {
-        twitter.get(`statuses/${timelineName}_timeline`, configPoll, function(err, tweets, raw) {
+    try {
+        await connectTwitter();        
+    } catch (err) {
+        // Make node.js shut up about the uncatched rejection...        
+    }
+
+    if (firstTime)
+        save();
+
+    /*
+    config.twitter.polls.forEach(src => {
+        var args = src.args || {};
+        args.tweet_mode = getDefault(args.tweet_mode, 'extended');
+        twitter.get(src.endpoint, args, function(err, tweets, raw) {
             if (err) {
                 console.error(err);
+                // Fail silently on poll.
             } else {
-                tweets.forEach(tweet => convertTweet(timelineName, tweet));
-                save();
+                tweets.forEach(tweet => convertTweet(tweet));
+                queueSave();
             }
         });
     });
+    */
 
-    var configStream = config.twitter.stream || {};
-    configStream.replies = getDefault(configStream.replies, true);
-    configStream.delimited = getDefault(configStream.delimited, false);
-    configStream.extended_tweet = getDefault(configStream.extended_tweet, true);
-    var stream = twitter.stream('user', configStream);
-    stream.on('error', err => { throw err; });
-    stream.on('data', event => {
-        if (!(event && event.contributors !== undefined && event.id_str && event.user && event.text))
-            return;
-        convertTweet('stream', event);
-        save();
+    config.twitter.streams.forEach(src => {
+        var args = src.args || {};
+        if (src.endpoint == 'statuses/filter' && src.auto) {
+            args.follow = '';
+            args.track = '';
+            
+            src.auto.forEach(auto => {
+                if (auto == 'user') {
+                    args.follow += tonne.twitter.id;
+                    args.follow += ',';
+                } else if (auto == 'mentions') {
+                    args.target += '@';
+                    args.target += tonne.twitter.handle;
+                    args.target += ',';
+                } else if (auto.startsWith('follow:')) {
+                    args.follow += auto.substring('follow:'.length);
+                    args.follow += ',';
+                } else if (auto.startsWith('target:')) {
+                    args.target += auto.substring('target:'.length);
+                    args.target += ',';
+                }
+            });
+
+            if (args.follow)
+                args.follow = args.follow.substring(0, args.follow.length - 1);
+            if (args.track)
+                args.track = args.track.substring(0, args.track.length - 1);
+        }
+        args.extended_tweet = getDefault(args.extended_tweet, true);
+        var stream = twitter.stream(src.endpoint, args);
+        stream.on('error', err => { throw err; });
+        stream.on('data', event => {
+            if (!(event && event.contributors !== undefined && event.id_str && event.user && event.text))
+                return;
+            convertTweet(event);
+            queueSave();
+        });
     });
 }
 
 function firstTimeSetup() { return new Promise((resolve, reject) => {
     console.log('Performing first time setup...');
-
     portal = {
-        name: 'tonne',
+        name: '???/tonne',
         desc: 'rotonde ⇄ twitter',
         port: [],
         feed: [],
         site: '',
         dat: '', // Deprecated
 
-        tonne: {
-            handle: '@'
-        }
+        tonne: { }
     };
-    tonne = portal.tonne;
+});}
 
+function connectTwitter() { return new Promise((resolve, reject) => {
     twitter.get('account/settings', (err, settings, raw) => {
         if (err) reject(err);
-        tonne.handle = settings.screen_name;
-        tonne.id = settings.id_str;
-        portal.name = `${tonne.handle}/tonne`
-        portal.site = `https://twitter.com/${tonne.handle}`;
-        console.log('First time setup succeeded. Handle: ', tonne.handle);
-        resolve();
+        tonne.twitter = tonne.twitter || {};
+        tonne.twitter.handle = settings.screen_name;
+        portal.name = `${tonne.twitter.handle}/tonne`;
+        portal.site = `https://twitter.com/${tonne.twitter.handle}`;
+        twitter.get('users/show', { screen_name: tonne.twitter.handle }, (err, user, raw) => {
+            tonne.twitter.id = user.id_str;
+            console.log('Connected to Twitter as ', tonne.twitter.handle, tonne.twitter.id);
+            resolve();
+        });
     });
 });}
 
-function hasEntry(from, type, id) {
+function hasEntry(from, id) {
     return portal.feed.findIndex(entry => entry.tonne &&
         entry.tonne.from == from &&
-        entry.tonne.type == type &&
-        entry.tonne.id_str == id
+        entry.tonne.id == id
     ) > -1;
 }
 
-function makeEntry(from, type, id, entry) {
+function makeEntry(from, id, entry) {
     entry.tonne = entry.tonne || {};
     entry.tonne.from = from;
-    entry.tonne.type = type;
     entry.tonne.id = id;
     return entry;
 }
 
-function addEntry(from, type, id, entry) {
-    if (hasEntry(from, type, id))
+function addEntry(from, id, entry) {
+    if (hasEntry(from, id))
         return;
-    entry = makeEntry(from, type, id, entry);
+    entry = makeEntry(from, id, entry);
     portal.feed.push(entry);
+    // Oldest top, newest bottom.
+    portal.feed = portal.feed.sort((a, b) => a.timestamp < b.timestamp ? -1 : 1);
+    var over = portal.feed.length - config.tonne.max;
+    if (over > 0)
+        portal.feed.splice(config.tonne.max - 1, over);
 }
 
 function unescapeHTML(m) {
@@ -219,7 +270,7 @@ function getTweetHeader(user, tweet, icon, did) {
 function getTweetMessage(tweet, icon, did) {
     return `${getTweetHeader(tweet.user, tweet, icon, did)}\n${getTweetText(tweet)}`;
 }
-function convertTweet(timelineName, tweet) {
+function convertTweet(tweet) {
     var entry = {
         message: getTweetMessage(tweet),
         timestamp: snowflakeToTimestamp(tweet.id_str),
@@ -246,7 +297,7 @@ function convertTweet(timelineName, tweet) {
             // Breaks retweet icon.
             // target: [ `https://twitter.com/${tweet.user.screen_name}/status/${tweet.id_str}` ],
             media: '',
-            quote: makeEntry('twitter', timelineName, tweet.quoted_status.id_str, entry),
+            quote: makeEntry('twitter', tweet.quoted_status.id_str, entry),
             tonne: {
                 handle: tweet.user.screen_name,
                 name: tweet.user.name,
@@ -267,7 +318,7 @@ function convertTweet(timelineName, tweet) {
             // Breaks retweet icon.        
             // target: [ `https://twitter.com/${tweet.retweeted_status.user.screen_name}/status/${tweet.retweeted_status.id_str}` ],
             media: '',
-            quote: makeEntry('twitter', timelineName, tweet.retweeted_status.id_str, entry),
+            quote: makeEntry('twitter', tweet.retweeted_status.id_str, entry),
             tonne: {
                 handle: tweet.user.screen_name,
                 name: tweet.user.name,
@@ -276,5 +327,5 @@ function convertTweet(timelineName, tweet) {
         };
     }
 
-    addEntry('twitter', timelineName, tweet.id_str, entry);
+    addEntry('twitter', tweet.id_str, entry);
 }
