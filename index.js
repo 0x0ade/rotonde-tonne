@@ -61,7 +61,7 @@ fs.mkdir(root, async (err) => {
 
     await copyFile(path.resolve('icons', 'icon.svg'), path.resolve(root, 'media', 'content', 'icon.svg'));
     await copyFile(path.resolve('icons', 'retweet.svg'), path.resolve(root, 'media', 'content', 'inline', 'retweet.svg'));    
-    await copyFile(path.resolve('icons', 'retweet.svg'), path.resolve(root, 'media', 'content', 'inline', 'retweet.svg'));    
+    await copyFile(path.resolve('icons', 'twitter.svg'), path.resolve(root, 'media', 'content', 'inline', 'twitter.svg'));    
 
     if (config.tonne.datopts) {
         Dat(root, config.tonne.datopts, (err, dat_) => {
