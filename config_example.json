@@ -6,7 +6,9 @@
         "max": 40
     },
     "twitter": {
-        "polls": [ 
+        "polls": [
+            { "endpoint": "statuses/home_timeline", "args": { "count": 40 } },
+            { "endpoint": "statuses/user_timeline", "args": { "count": 40 } },
             { "endpoint": "statuses/mentions_timeline", "args": { "count": 40 } }
         ],
         "streams": [

@@ -1,4 +1,4 @@
-var version = '0.0.0';
+var version = '0.1.0';
 
 var cuint = require('cuint');
 var UINT32 = cuint.UINT32;
@@ -97,7 +97,7 @@ function queueSave() {
 async function main() {
     if (hash) return;
     hash = dat.key.toString('hex');
-    console.log(`Connected as: dat://${hash}/`);
+    console.log('Connected to dat network.', `dat://${hash}/`);
 
     var firstTime = false;
     try {
@@ -132,9 +132,9 @@ async function main() {
         twitter.get(src.endpoint, args, function(err, tweets, raw) {
             if (err) {
                 console.error(err);
-                // Fail silently on poll.
+                // Fail non-fatally on poll.
             } else {
-                tweets.forEach(tweet => convertTweet(tweet));
+                tweets.forEach(tweet => addEntry(convertTweet(tweet)));
                 queueSave();
             }
         });
@@ -142,15 +142,15 @@ async function main() {
 
     config.twitter.streams.forEach(src => {
         var args = src.args || {};
-        if (src.endpoint == 'statuses/filter' && src.auto) {
+        if (src.endpoint === 'statuses/filter' && src.auto) {
             args.follow = '';
             args.track = '';
             
             src.auto.forEach(auto => {
-                if (auto == 'user') {
+                if (auto === 'user') {
                     args.follow += tonne.twitter.id;
                     args.follow += ',';
-                } else if (auto == 'mentions') {
+                } else if (auto === 'mentions') {
                     args.target += '@';
                     args.target += tonne.twitter.handle;
                     args.target += ',';
@@ -169,14 +169,25 @@ async function main() {
                 args.track = args.track.substring(0, args.track.length - 1);
         }
         args.extended_tweet = getDefault(args.extended_tweet, true);
-        var stream = twitter.stream(src.endpoint, args);
-        stream.on('error', err => { throw err; });
-        stream.on('data', event => {
-            if (!(event && event.contributors !== undefined && event.id_str && event.user && (event.full_text || event.text)))
-                return;
-            convertTweet(event);
-            queueSave();
-        });
+        _twitterStream(src.endpoint, args);
+    });
+}
+
+async function _twitterStream(endpoint, args) {
+    var stream = twitter.stream(endpoint, args);
+    stream.on('error', err => {
+        if (err.syscall === 'connect') {
+            console.err('Failed connecting to Twitter stream, trying again.', err);
+            setTimeout(() => _twitterStream(endpoint, args), 1000);
+            return;
+        }
+        throw err;
+    });
+    stream.on('data', event => {
+        if (!(event && event.contributors !== undefined && event.id_str && event.user && (event.full_text || event.text)))
+            return;
+        addEntry(convertTweet(event));
+        queueSave();
     });
 }
 
@@ -202,36 +213,42 @@ function connectTwitter() { return new Promise((resolve, reject) => {
         portal.site = `https://twitter.com/${tonne.twitter.handle}`;
         twitter.get('users/show', { screen_name: tonne.twitter.handle }, (err, user, raw) => {
             tonne.twitter.id = user.id_str;
-            console.log('Connected to Twitter as ', tonne.twitter.handle, tonne.twitter.id);
+            console.log('Connected to Twitter.', tonne.twitter.handle, tonne.twitter.id);
             resolve();
         });
     });
 });}
 
-function hasEntry(from, id) {
-    return portal.feed.findIndex(entry => entry.tonne &&
-        entry.tonne.from == from &&
-        entry.tonne.id == id
-    ) > -1;
+function getEntryIndex(find) {
+    return (!find || !find.tonne) ? -1 : portal.feed.findIndex(entry => entry.tonne &&
+        entry.tonne.from === find.tonne.from &&
+        entry.tonne.id === find.tonne.id
+    );
 }
 
-function makeEntry(from, id, entry) {
-    entry.tonne = entry.tonne || {};
-    entry.tonne.from = from;
-    entry.tonne.id = id;
-    return entry;
+function hasEntry(find) {
+    return getEntryIndex(find) > -1;
 }
 
-function addEntry(from, id, entry) {
-    if (hasEntry(from, id))
-        return;
-    entry = makeEntry(from, id, entry);
-    portal.feed.push(entry);
+function addEntry(entry) {
+    var index = getEntryIndex(entry)
+    if (index > -1)
+        portal.feed[index] = entry;
+    else
+        portal.feed.push(entry);
     // Oldest top, newest bottom.
     portal.feed = portal.feed.sort((a, b) => a.timestamp < b.timestamp ? -1 : 1);
     var over = portal.feed.length - config.tonne.max;
     if (over > 0)
         portal.feed.splice(0, over);
+}
+
+function getLinkMediaURL(url) {
+    if (url.startsWith('https://twitter.com/'))
+        return 'twttr#@' + url.substring('https://twitter.com/'.length) + '/.';
+    if (url.startsWith('https://t.co/'))
+        return 'tco#' + url.substring('https://t.co/'.length) + '/.';
+    return 'ext#' + url + '/.';
 }
 
 function unescapeHTML(m) {
@@ -247,79 +264,62 @@ var __snowflakeOffset__ = UINT64('1288834974657');
 function snowflakeToTimestamp(id) {
     return UINT64(id).shiftRight(22).add(__snowflakeOffset__).toString();
 }
+function getTweetURL(tweet) {
+    return `https://twitter.com/${tweet.user.screen_name}/status/${tweet.id_str}`;
+}
 function getTweetText(tweet) {
     if (tweet.extended_tweet)
         return getTweetText(tweet.extended_tweet) || unescapeHTML(tweet.text);
     return unescapeHTML(tweet.full_text || tweet.text);
 }
-function getTweetHeader(user, tweet, icon, did) {
+function getTweetHeader(user, icon, did) {
     icon = icon ? `{%${icon}.svg%}` : '{%twitter.svg%}';
     did = did ? ` {*${did}*}` : '';
     var header = `${icon} {*${unescapeHTML(user.name)}*} {_@${user.screen_name}_}${did}`;
-    if (tweet) {
-        header += ` - {_ https://twitter.com/${tweet.user.screen_name}/status/${tweet.id_str} _}`;
-    }
     return header;
 }
 function getTweetMessage(tweet, icon, did) {
-    return `${getTweetHeader(tweet.user, tweet, icon, did)}\n${getTweetText(tweet)}`;
+    return `${getTweetHeader(tweet.user, icon, did)}\n${getTweetText(tweet)}`;
 }
 function convertTweet(tweet) {
-    var entry = {
-        message: getTweetMessage(tweet),
-        timestamp: snowflakeToTimestamp(tweet.id_str),
-        // target: [ `https://twitter.com/${tweet.user.screen_name}/status/${tweet.id_str}` ],
-        media: '',
-        tonne: {
-            handle: tweet.user.screen_name,
-            name: tweet.user.name,
-            action: 'post'
-        }
-    };
+    var entry;
 
-    // Quote current entry.
     if (tweet.quoted_status) {
-        entry.message = getTweetMessage(tweet.quoted_status);
-        entry.timestamp = snowflakeToTimestamp(tweet.quoted_status.id_str);
-        // entry.target = [ `https://twitter.com/${tweet.quoted_status.user.screen_name}/status/${tweet.quoted_status.id_str}` ];
-        entry.tonne.handle = tweet.quoted_status.user.screen_name;
-        entry.tonne.name = tweet.quoted_status.user.name;
-
         entry = {
-            message: getTweetMessage(tweet, 'retweet', 'quoted'),
-            timestamp: snowflakeToTimestamp(tweet.id_str),
-            // Breaks retweet icon.
-            // target: [ `https://twitter.com/${tweet.user.screen_name}/status/${tweet.id_str}` ],
-            media: '',
-            quote: makeEntry('twitter', tweet.quoted_status.id_str, entry),
+            message: getTweetMessage(tweet, 'twitter', 'quoted'),
+            media: getLinkMediaURL(getTweetURL(tweet)),
             tonne: {
-                handle: tweet.user.screen_name,
-                name: tweet.user.name,
                 action: 'quote'
-            }
+            },
+            quote: convertTweet(tweet.quoted_status)
         };
-
+    
     } else if (tweet.retweeted_status) {
-        entry.message = getTweetMessage(tweet.retweeted_status);
-        entry.timestamp = snowflakeToTimestamp(tweet.retweeted_status.id_str);
-        // entry.target = [ `https://twitter.com/${tweet.retweeted_status.user.screen_name}/status/${tweet.retweeted_status.id_str}` ];
-        entry.tonne.name = tweet.retweeted_status.user.screen_name;
-        entry.tonne.name = tweet.retweeted_status.user.name;
-        
         entry = {
-            message: getTweetHeader(tweet.user, tweet.retweeted_status, 'retweet'),
-            timestamp: snowflakeToTimestamp(tweet.id_str),
-            // Breaks retweet icon.        
-            // target: [ `https://twitter.com/${tweet.retweeted_status.user.screen_name}/status/${tweet.retweeted_status.id_str}` ],
-            media: '',
-            quote: makeEntry('twitter', tweet.retweeted_status.id_str, entry),
+            message: getTweetHeader(tweet.user, 'retweet', 'retweeted'),
+            media: getLinkMediaURL(getTweetURL(tweet.retweeted_status)),
             tonne: {
-                handle: tweet.user.screen_name,
-                name: tweet.user.name,
-                action: 'repost'
+                action: 'quote'
+            },
+            quote: convertTweet(tweet.retweeted_status)
+        };
+    
+    } else {
+        entry = {
+            message: getTweetMessage(tweet),
+            media: getLinkMediaURL(getTweetURL(tweet)),
+            tonne: {
+                action: 'post'
             }
         };
     }
 
-    addEntry('twitter', tweet.id_str, entry);
+    entry.timestamp = snowflakeToTimestamp(tweet.id_str);
+
+    entry.tonne.from = 'twitter';
+    entry.tonne.id = tweet.id_str;
+    entry.tonne.handle = tweet.user.screen_name;
+    entry.tonne.name = tweet.user.name;
+    
+    return entry;
 }

@@ -5,7 +5,7 @@
     </head>
     <body></body>
     <script>
-        var hash = window.location.hash.substring(1, window.location.hash - 1);
+        var hash = window.location.hash.substring(2, window.location.hash.length - 2);
         window.location = `https://twitter.com/${hash}`;
     </script>
 </html>

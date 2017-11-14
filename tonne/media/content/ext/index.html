@@ -5,7 +5,7 @@
     </head>
     <body></body>
     <script>
-        var hash = window.location.hash.substring(1, window.location.hash - 1);
-        window.location = `https://t.co/${hash}`;
+        var hash = window.location.hash.substring(1, window.location.hash.length - 2);
+        window.location = hash;
     </script>
 </html>
