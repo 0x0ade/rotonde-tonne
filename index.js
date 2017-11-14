@@ -102,13 +102,13 @@ async function main() {
     var firstTime = false;
     try {
         portal = JSON.parse(fs.readFileSync(path.resolve(root, 'portal.json')));
-        tonne = portal.tonne;
     } catch (err) {
         // If it's our first time, save & sync after connecting.
         firstTime = true;
         firstTimeSetup();
     }
-
+    tonne = portal.tonne;
+    
     portal.client_version = `tonne: ${version}`;
 
     try {
