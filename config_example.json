@@ -9,7 +9,8 @@
         "polls": [ 
             { "endpoint": "statuses/mentions_timeline", "args": { "count": 40 } }
         ],
-        "streams": [ 
+        "streams": [
+            { "endpoint": "statuses/filter", "auto": [ "user", "mentions" ] },
             { "endpoint": "user", "args": { "replies": true } }
         ],
         "api": {
