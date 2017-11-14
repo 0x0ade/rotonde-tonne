@@ -1,0 +1,17 @@
+{
+  "name": "rotonde-tonne",
+  "version": "0.0.0",
+  "description": "rotonde ⇄ twitter",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "0x0ade",
+  "license": "MIT",
+  "dependencies": {
+    "cuint": "^0.2.2",
+    "dat-node": "^3.5.5",
+    "twitter": "^1.7.1"
+  }
+}
