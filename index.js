@@ -129,7 +129,6 @@ async function main() {
     if (firstTime)
         save();
 
-    /*
     config.twitter.polls.forEach(src => {
         var args = src.args || {};
         args.tweet_mode = getDefault(args.tweet_mode, 'extended');
@@ -143,7 +142,6 @@ async function main() {
             }
         });
     });
-    */
 
     config.twitter.streams.forEach(src => {
         var args = src.args || {};
