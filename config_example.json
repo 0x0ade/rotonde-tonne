@@ -2,7 +2,6 @@
     "tonne": {
         "root": "tonne",
         "datopts": null,
-        "mydat": "dat://ced1c0e68460000e6fb5d5723a991ecac057b76f4eee0f8ff12c2dc3c5a3ff35/",        
         "delay_sync": 20000,
         "max": 40
     },
