@@ -23,6 +23,6 @@
 * `npm start`
 * Follow the dat from your own portal and hope that Twitter doesn't disconnect you prematurely.
 
-It's just meant to fit my needs. If there's anything missing, please tell me [on Twitter](https://twitter.com/0x0ade) or [Rotonde](dat://rotonde-0x0ade.hashbase.io).
+It's just meant to fit my needs. If there's anything missing, please tell me [on Twitter](https://twitter.com/0x0ade) or Rotonde (dat://rotonde-0x0ade.hashbase.io).
 
 Pull requests are welcome!
