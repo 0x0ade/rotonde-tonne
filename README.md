@@ -3,9 +3,6 @@
 #### MIT-licensed
 ----
 
-## This currently only mirrors your timeline.
-Sending from rotonde to Twitter automatically isn't implemented yet.
-
 ## Special thanks to my [patrons on Patreon](https://www.patreon.com/0x0ade):
 * [Chad Yates](https://twitter.com/ChadCYates)
 * [Renaud Bédard](https://twitter.com/renaudbedard)
