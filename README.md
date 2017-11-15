@@ -13,9 +13,9 @@
 - Rename `config_example.json` to `config.json`
 - Fill out `config.json`
   - Replace the dat URL in the feeds array with your own portal(s). Otherwise, my rotonde posts show up on your Twitter feed...
-  - If you don't like noise, `config.json` can be set up to only mirror your mentions timeline. You'll also need to remove the `"user"` stream (which corresponds to the `"home"` timeline).
-  - All possible timelines are `"home", "user", "mentions"`.
-  - For the `"endpoint": "statuses/filter"` stream, you can pass `"auto": [ "user", "mentions", "follow:ID", "track:KEYWORD" ]`. rotonde-tonne creates a matching full request.
+  - If you don't like noise, `config.json` can be set up to only mirror your mentions timeline. You'll also need to remove the `"user"` stream (which corresponds to the `"home"` timeline).
+  - All possible timelines are `"home", "user", "mentions"`.
+  - For the `"endpoint": "statuses/filter"` stream, you can pass `"auto": [ "user", "mentions", "follow:ID", "track:KEYWORD" ]`. rotonde-tonne creates a matching full request.
     - `"user"` and `"mentions"` will be replaced with your ID and handle automatically.
     - `"follow:ID"` and `track:KEYWORD` adhere to the [limits of the Twitter API.](https://developer.twitter.com/en/docs/tweets/filter-realtime/api-reference/post-statuses-filter.html)
   - If you're a fan of manual setup, you can just pass on the args. For example, the following stream mirrors your complete timeline: `{ "endpoint": "user", "args": { "replies": true } }`
