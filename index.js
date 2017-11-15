@@ -51,6 +51,8 @@ var root = config.tonne.root || 'tonne';
 
 var portal, tonne;
 
+var feeds = {};
+
 fs.mkdir(root, async (err) => {
     if (err && err.code !== 'EEXIST') throw err;
 
@@ -97,7 +99,7 @@ function queueSave() {
 async function main() {
     if (hash) return;
     hash = dat.key.toString('hex');
-    console.log('Connected to dat network.', `dat://${hash}/`);
+    console.log('Connected to dat network', `dat://${hash}/`);
 
     var firstTime = false;
     try {
@@ -110,12 +112,8 @@ async function main() {
     tonne = portal.tonne;
     
     portal.client_version = `tonne: ${version}`;
-
-    try {
-        await connectTwitter();        
-    } catch (err) {
-        // Make node.js shut up about the uncatched rejection...        
-    }
+    
+    await initTwitter();
 
     fs.writeFileSync(path.resolve(root, 'dat.json'), JSON.stringify({
         url: `dat://${hash}/`,
@@ -125,70 +123,27 @@ async function main() {
 
     if (firstTime)
         save();
-
-    config.twitter.polls.forEach(src => {
-        var args = src.args || {};
-        args.tweet_mode = getDefault(args.tweet_mode, 'extended');
-        twitter.get(src.endpoint, args, function(err, tweets, raw) {
+    
+    fs.mkdirSyncNexist('tmp');
+    config.tonne.feeds.forEach(feedKey => {
+        var feedRoot = path.resolve('tmp', feedKey);
+        fs.mkdirSyncNexist(feedRoot);
+        Dat(feedRoot, { key: feedKey, temp: true/*, sparse: true*/ }, (err, feedDat) => {
             if (err) {
-                console.error(err);
-                // Fail non-fatally on poll.
-            } else {
-                tweets.forEach(tweet => addEntry(convertTweet(tweet)));
-                queueSave();
+                // Failed connecting? Just notify the user.
+                console.error('Failed connecting to rotonde feed', feedKey, err);
+                return;
             }
+            // We're already connected to the network - we only want to download.
+            feedDat.joinNetwork({ upload: false });
+
+            var stats = feedDat.trackStats();
+            feeds[feedKey] = { newest: Date.now(), dat: feedDat, stats: stats, root: feedRoot };                
+            stats.on('update', () => rotondeUpdated(feedKey, feedDat));
         });
     });
 
-    config.twitter.streams.forEach(src => {
-        var args = src.args || {};
-        if (src.endpoint === 'statuses/filter' && src.auto) {
-            args.follow = '';
-            args.track = '';
-            
-            src.auto.forEach(auto => {
-                if (auto === 'user') {
-                    args.follow += tonne.twitter.id;
-                    args.follow += ',';
-                } else if (auto === 'mentions') {
-                    args.target += '@';
-                    args.target += tonne.twitter.handle;
-                    args.target += ',';
-                } else if (auto.startsWith('follow:')) {
-                    args.follow += auto.substring('follow:'.length);
-                    args.follow += ',';
-                } else if (auto.startsWith('target:')) {
-                    args.target += auto.substring('target:'.length);
-                    args.target += ',';
-                }
-            });
-
-            if (args.follow)
-                args.follow = args.follow.substring(0, args.follow.length - 1);
-            if (args.track)
-                args.track = args.track.substring(0, args.track.length - 1);
-        }
-        args.extended_tweet = getDefault(args.extended_tweet, true);
-        _twitterStream(src.endpoint, args);
-    });
-}
-
-async function _twitterStream(endpoint, args) {
-    var stream = twitter.stream(endpoint, args);
-    stream.on('error', err => {
-        if (err.syscall === 'connect') {
-            console.err('Failed connecting to Twitter stream, trying again.', err);
-            setTimeout(() => _twitterStream(endpoint, args), 1000);
-            return;
-        }
-        throw err;
-    });
-    stream.on('data', event => {
-        if (!(event && event.contributors !== undefined && event.id_str && event.user && (event.full_text || event.text)))
-            return;
-        addEntry(convertTweet(event));
-        queueSave();
-    });
+    // connectTwitter();
 }
 
 function firstTimeSetup() {
@@ -204,20 +159,47 @@ function firstTimeSetup() {
     };
 }
 
-function connectTwitter() { return new Promise((resolve, reject) => {
-    twitter.get('account/settings', (err, settings, raw) => {
-        if (err) reject(err);
-        tonne.twitter = tonne.twitter || {};
-        tonne.twitter.handle = settings.screen_name;
-        portal.name = `${tonne.twitter.handle}/tonne`;
-        portal.site = `https://twitter.com/${tonne.twitter.handle}`;
-        twitter.get('users/show', { screen_name: tonne.twitter.handle }, (err, user, raw) => {
-            tonne.twitter.id = user.id_str;
-            console.log('Connected to Twitter.', tonne.twitter.handle, tonne.twitter.id);
-            resolve();
+
+async function rotondeUpdated(feedKey, feedDat) {
+    // fs.readFile(path.resolve(feeds[feedKey].root, 'portal.json'), (err, feedFile) => {
+    feedDat.archive.readFile('/portal.json', (err, feedFile) => {
+        console.error('Rotonde feed updated', feedKey);
+        if (err) {
+            console.error('Failed reading rotonde feed', feedKey, err);
+            return;
+        }
+        var feed;
+        try {
+            feed = JSON.parse(feedFile);
+        } catch (err) {
+            console.error('Failed parsing rotonde feed', feedKey, err);
+            return;
+        }
+
+        var entry;
+        var now = Date.now();
+        feed.feed.forEach(feedEntry => {
+            if (feedEntry.timestamp <= feeds[feedKey].newest ||
+                now < feedEntry.timestamp)
+                return;
+            feeds[feedKey].newest = feedEntry.timestamp;
+            entry = feedEntry;
         });
-    });
-});}
+
+        if (!entry)
+            return;
+        
+        console.log('Found new newest rotonde entry', entry);
+        twitter.post('statuses/update', { status: escapeHTML(entry.message) }, function(err, tweet, response) {
+            if (err) {
+                console.error('Failed sending tweet', err);
+                return;
+            }
+            console.log('Tweet sent', tweet); 
+        });
+    })
+}
+
 
 function getEntryIndex(find) {
     return (!find || !find.tonne) ? -1 : portal.feed.findIndex(entry => entry.tonne &&
@@ -258,6 +240,99 @@ function unescapeHTML(m) {
         .replace('&gt;', '>')
         .replace('&quot;', '"')
         .replace('&#039;', '\'');
+}
+
+function escapeHTML(m) {
+    return m && m
+        .replace('&', '&amp;')
+        .replace('<', '&lt;')
+        .replace('>', '&gt;')
+        .replace('"', '&quot;')
+        .replace('\'', '&#039;');
+}
+
+
+function initTwitter() { return new Promise((resolve, reject) => {
+    twitter.get('account/settings', (err, settings, raw) => {
+        if (err) reject(err);
+        tonne.twitter = tonne.twitter || {};
+        tonne.twitter.handle = settings.screen_name;
+        portal.name = `${tonne.twitter.handle}/tonne`;
+        portal.site = `https://twitter.com/${tonne.twitter.handle}`;
+        twitter.get('users/show', { screen_name: tonne.twitter.handle }, (err, user, raw) => {
+            tonne.twitter.id = user.id_str;
+            console.log('Connected to Twitter', tonne.twitter.handle, tonne.twitter.id);
+            resolve();
+        });
+    });
+});}
+
+async function connectTwitter() {
+    config.twitter.polls.forEach(src => {
+        var args = src.args || {};
+        args.tweet_mode = getDefault(args.tweet_mode, 'extended');
+        twitter.get(src.endpoint, args, function(err, tweets, raw) {
+            if (err) {
+                console.error('Failed polling', src.endpoint, err);
+                // Fail non-fatally on poll.
+                return;
+            }
+            console.error('Polled', src.endpoint);
+            tweets.forEach(tweet => addEntry(convertTweet(tweet)));
+            queueSave();
+        });
+    });
+
+    config.twitter.streams.forEach(src => {
+        var args = src.args || {};
+        if (src.endpoint === 'statuses/filter' && src.auto) {
+            args.follow = '';
+            args.track = '';
+            
+            src.auto.forEach(auto => {
+                if (auto === 'user') {
+                    args.follow += tonne.twitter.id;
+                    args.follow += ',';
+                } else if (auto === 'mentions') {
+                    args.target += '@';
+                    args.target += tonne.twitter.handle;
+                    args.target += ',';
+                } else if (auto.startsWith('follow:')) {
+                    args.follow += auto.substring('follow:'.length);
+                    args.follow += ',';
+                } else if (auto.startsWith('target:')) {
+                    args.target += auto.substring('target:'.length);
+                    args.target += ',';
+                }
+            });
+
+            if (args.follow)
+                args.follow = args.follow.substring(0, args.follow.length - 1);
+            if (args.track)
+                args.track = args.track.substring(0, args.track.length - 1);
+        }
+        args.extended_tweet = getDefault(args.extended_tweet, true);
+        _twitterStream(src.endpoint, args);
+    });
+}
+
+async function _twitterStream(endpoint, args) {
+    var stream = twitter.stream(endpoint, args);
+    stream.on('error', err => {
+        if (err.syscall === 'connect') {
+            console.error('Failed connecting to Twitter stream, trying again', err);
+            setTimeout(() => _twitterStream(endpoint, args), 1000);
+            return;
+        }
+        throw err;
+    });
+    stream.on('data', event => {
+        console.error('Received event in stream', endpoint, event);
+        if (!(event && event.contributors !== undefined && event.id_str && event.user && (event.full_text || event.text)))
+            return;
+        addEntry(convertTweet(event));
+        queueSave();
+    });
 }
 
 var __snowflakeOffset__ = UINT64('1288834974657');

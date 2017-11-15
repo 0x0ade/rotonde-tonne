@@ -9,6 +9,7 @@
   },
   "author": "0x0ade",
   "license": "MIT",
+  "repository": "https://github.com/0x0ade/rotonde-tonne",
   "dependencies": {
     "cuint": "^0.2.2",
     "dat-node": "^3.5.5",
