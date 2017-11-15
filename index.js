@@ -1,4 +1,4 @@
-var version = '0.2.0';
+var version = '0.2.1';
 
 var cuint = require('cuint');
 var UINT32 = cuint.UINT32;
@@ -186,7 +186,7 @@ async function rotondeUpdated(feedKey, feedDat) {
             entry = feedEntry;
         });
 
-        if (!entry)
+        if (!entry || entry.quote || entry.whisper)
             return;
         
         console.log('Found new newest rotonde entry', entry);
@@ -277,7 +277,7 @@ async function connectTwitter() {
                 // Fail non-fatally on poll.
                 return;
             }
-            console.error('Polled', src.endpoint);
+            console.log('Polled', src.endpoint);
             tweets.forEach(tweet => addEntry(convertTweet(tweet)));
             queueSave();
         });
@@ -327,9 +327,10 @@ async function _twitterStream(endpoint, args) {
         throw err;
     });
     stream.on('data', event => {
-        console.error('Received event in stream', endpoint, event);
-        if (!(event && event.contributors !== undefined && event.id_str && event.user && (event.full_text || event.text)))
+        if (!(event && event.contributors !== undefined && event.id_str && event.user && (event.full_text || event.text))) {
+            console.error('Received unknown event in stream', endpoint, event);
             return;
+        }
         addEntry(convertTweet(event));
         queueSave();
     });
