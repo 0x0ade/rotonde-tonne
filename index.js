@@ -1,4 +1,4 @@
-var version = '0.1.0';
+var version = '0.2.0';
 
 var cuint = require('cuint');
 var UINT32 = cuint.UINT32;
@@ -143,7 +143,7 @@ async function main() {
         });
     });
 
-    // connectTwitter();
+    connectTwitter();
 }
 
 function firstTimeSetup() {
@@ -163,7 +163,7 @@ function firstTimeSetup() {
 async function rotondeUpdated(feedKey, feedDat) {
     // fs.readFile(path.resolve(feeds[feedKey].root, 'portal.json'), (err, feedFile) => {
     feedDat.archive.readFile('/portal.json', (err, feedFile) => {
-        console.error('Rotonde feed updated', feedKey);
+        // console.log('Rotonde feed updated', feedKey);
         if (err) {
             console.error('Failed reading rotonde feed', feedKey, err);
             return;
@@ -388,6 +388,9 @@ function convertTweet(tweet) {
             }
         };
     }
+
+    // Fix Rotonde 0.2 requiring target.
+    entry.target = [ `dat://${hash}/` ];
 
     entry.timestamp = snowflakeToTimestamp(tweet.id_str);
 
