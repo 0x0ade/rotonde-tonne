@@ -1,4 +1,4 @@
-var version = '0.2.2';
+var version = '0.3.0';
 
 var cuint = require('cuint');
 var UINT32 = cuint.UINT32;
@@ -174,11 +174,12 @@ async function rotondeUpdated(feedKey, feedDat) {
             entry = feedEntry;
         });
 
-        if (!entry || entry.whisper || entry.message.indexOf(config.tonne.nomirror) > -1)
+        if (!entry)
+            return;
+        console.log('Found new newest rotonde entry', entry);            
+        if (entry.whisper || entry.message.indexOf(config.tonne.nomirror) > -1)
             return;
         
-        console.log('Found new newest rotonde entry', entry);
-
         var args = { status: entry.message };
 
         if (entry.quote && hasHash(entry.target, hash) && entry.media == entry.quote.media &&
