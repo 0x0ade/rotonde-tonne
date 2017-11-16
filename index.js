@@ -174,7 +174,7 @@ async function rotondeUpdated(feedKey, feedDat) {
             entry = feedEntry;
         });
 
-        if (!entry || entry.whisper || entry.message.indexOf(config.tonne.nomirror))
+        if (!entry || entry.whisper || entry.message.indexOf(config.tonne.nomirror) > -1)
             return;
         
         console.log('Found new newest rotonde entry', entry);
