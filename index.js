@@ -1,4 +1,4 @@
-var version = '0.2.1';
+var version = '0.2.2';
 
 var cuint = require('cuint');
 var UINT32 = cuint.UINT32;
@@ -61,32 +61,19 @@ fs.mkdir(root, async (err) => {
     fs.mkdirSyncNexist(path.resolve(root, 'media', 'content', 'inline'));
     fs.mkdirSyncNexist(path.resolve(root, 'links')); 
 
-    if (config.tonne.datopts) {
-        Dat(root, config.tonne.datopts, (err, dat_) => {
+    Dat(root, config.tonne.datopts || {}, (err, dat_) => {
+        if (err) throw err;
+        dat = dat_;
+        dat.importFiles({watch: true});
+        dat.joinNetwork((err) => {
             if (err) throw err;
-            dat = dat_;
-            dat.joinNetwork((err) => {
-                if (err) throw err;
-                main();
-            });
+            main();
         });
-    } else {
-        Dat(root, (err, dat_) => {
-            if (err) throw err;
-            dat = dat_;
-            dat.importFiles();
-            dat.joinNetwork((err) => {
-                if (err) throw err;
-                main();
-            });
-        });
-    }
+    });
 });
 
 function save(sync = true) {
     fs.writeFileSync(path.resolve(root, 'portal.json'), JSON.stringify(portal));
-    if (sync)
-        dat.importFiles();
     queuedSave = 0;
 }
 var queuedSave;
@@ -134,6 +121,7 @@ async function main() {
                 console.error('Failed connecting to rotonde feed', feedKey, err);
                 return;
             }
+            console.log('Connected to portal', `dat://${feedKey}/`);
             // We're already connected to the network - we only want to download.
             feedDat.joinNetwork({ upload: false });
 
@@ -162,7 +150,7 @@ function firstTimeSetup() {
 
 async function rotondeUpdated(feedKey, feedDat) {
     // fs.readFile(path.resolve(feeds[feedKey].root, 'portal.json'), (err, feedFile) => {
-    feedDat.archive.readFile('/portal.json', (err, feedFile) => {
+    feedDat.archive.readFile('/portal.json', async (err, feedFile) => {
         // console.log('Rotonde feed updated', feedKey);
         if (err) {
             console.error('Failed reading rotonde feed', feedKey, err);
@@ -186,11 +174,56 @@ async function rotondeUpdated(feedKey, feedDat) {
             entry = feedEntry;
         });
 
-        if (!entry || entry.quote || entry.whisper)
+        if (!entry || entry.whisper)
             return;
         
         console.log('Found new newest rotonde entry', entry);
-        twitter.post('statuses/update', { status: escapeHTML(entry.message) }, function(err, tweet, response) {
+
+        var args = { status: entry.message };
+
+        if (entry.quote && hasHash(entry.target, hash) && entry.media == entry.quote.media &&
+            entry.media.startsWith('twttr#@')) {
+            var meta = entry.media.substring('twttr#@'.length, entry.media.length - 2).split('/');
+            if (meta.length < 3)
+                return;
+            
+            var id = meta[2];
+            var up;
+            try {
+                up = await getTweet(id);
+                if (!up)
+                    throw null;
+            } catch (err) {
+                // Fail silently.
+                return;
+            }
+
+            var author = '@' + up.user.screen_name;
+            var us = '@' + tonne.twitter.handle;
+            
+            var mentions = '';
+            if (!entry.message.startsWith('@')) {
+                var words = getTweetText(up).split(' ');
+                for (var i in words) {
+                    var word = words[i];
+                    if (!word.startsWith('@'))
+                        break;
+                    if (word == author ||
+                        word == us)
+                    continue;
+                    mentions += word;
+                    mentions += ' ';
+                }
+            }
+            args.status = mentions + args.status;
+
+            if (args.status.indexOf(author) == -1)
+                args.status = author + ' ' + args.status;
+            
+            args.in_reply_to_status_id = id;
+        }
+
+        twitter.post('statuses/update', args, function(err, tweet, raw) {
             if (err) {
                 console.error('Failed sending tweet', err);
                 return;
@@ -198,6 +231,47 @@ async function rotondeUpdated(feedKey, feedDat) {
             console.log('Tweet sent', tweet); 
         });
     })
+}
+
+
+function toHash(url) {
+    if (!url)
+        return null;
+
+    if (url.startsWith("//"))
+        url = url.substring(2);
+
+    url = url.replace("dat://", "");
+
+    var index = url.indexOf("/");
+    url = index == -1 ? url : url.substring(0, index);
+
+    url = url.toLowerCase().trim();
+    return url;
+}
+
+function hasHash(hashesA, hashesB) {
+  // Passed a single url or hash as hashesB. Let's support it for convenience.
+  if (typeof(hashesB) === 'string')
+    return hashesA.findIndex(hashA => toHash(hashA) == toHash(hashesB)) > -1;
+  
+  for (var a in hashesA) {
+    var hashA = toHash(hashesA[a]);
+    if (!hashA)
+      continue;
+
+    for (var b in hashesB) {
+      var hashB = toHash(hashesB[b]);
+      if (!hashB)
+        continue;
+
+      if (hashA == hashB)
+        return true;
+    }
+
+  }
+
+  return false;
 }
 
 
@@ -213,6 +287,8 @@ function hasEntry(find) {
 }
 
 function addEntry(entry) {
+    if (!entry)
+        return;
     var index = getEntryIndex(entry)
     if (index > -1)
         portal.feed[index] = entry;
@@ -235,20 +311,20 @@ function getLinkMediaURL(url) {
 
 function unescapeHTML(m) {
     return m && m
-        .replace('&amp;', '&')
-        .replace('&lt;', '<')
-        .replace('&gt;', '>')
-        .replace('&quot;', '"')
-        .replace('&#039;', '\'');
+        .replace(/&amp;/g,  '&')
+        .replace(/&lt;/g,   '<')
+        .replace(/&gt;/g,   '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#039;/g, '\'');
 }
 
 function escapeHTML(m) {
     return m && m
-        .replace('&', '&amp;')
-        .replace('<', '&lt;')
-        .replace('>', '&gt;')
-        .replace('"', '&quot;')
-        .replace('\'', '&#039;');
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
 }
 
 
@@ -278,7 +354,7 @@ async function connectTwitter() {
                 return;
             }
             console.log('Polled', src.endpoint);
-            tweets.forEach(tweet => addEntry(convertTweet(tweet)));
+            tweets.forEach(tweet => convertTweet(tweet).then(addEntry));
             queueSave();
         });
     });
@@ -331,10 +407,24 @@ async function _twitterStream(endpoint, args) {
             console.error('Received unknown event in stream', endpoint, event);
             return;
         }
-        addEntry(convertTweet(event));
+        convertTweet(event).then(addEntry);
         queueSave();
     });
 }
+
+function getTweet(id, args) { return new Promise((resolve, reject) => {
+    args = args || {};
+    args.id = getDefault(args.id, id);
+    args.tweet_mode = getDefault(args.tweet_mode, 'extended');
+    twitter.get('statuses/show', args, function(err, tweet, raw) {
+        if (err) {
+            console.error('Failed getting tweet', id, err);
+            reject(err);
+            return;
+        }
+        resolve(tweet);
+    });
+});}
 
 var __snowflakeOffset__ = UINT64('1288834974657');
 function snowflakeToTimestamp(id) {
@@ -357,27 +447,45 @@ function getTweetHeader(user, icon, did) {
 function getTweetMessage(tweet, icon, did) {
     return `${getTweetHeader(tweet.user, icon, did)}\n${getTweetText(tweet)}`;
 }
-function convertTweet(tweet) {
+async function convertTweet(tweet) {
+    if (!tweet)
+        return null;
+    
     var entry;
 
-    if (tweet.quoted_status) {
+    if (tweet.retweeted_status) {
+        entry = {
+            message: getTweetHeader(tweet.user, 'retweet', 'retweeted'),
+            media: getLinkMediaURL(getTweetURL(tweet.retweeted_status)),
+            tonne: {
+                action: 'repost'
+            },
+            quote: await convertTweet(tweet.retweeted_status)
+        };
+    
+    } else if (tweet.in_reply_to_status_id_str) {
+        entry = {
+            message: getTweetMessage(tweet, 'twitter', 'replied'),
+            media: getLinkMediaURL(getTweetURL(tweet)),
+            tonne: {
+                action: 'reply'
+            }
+        };
+        try {
+            var up = await getTweet(tweet.in_reply_to_status_id_str);
+            entry.quote = await convertTweet(up);
+        } catch (err) {
+            // Silent fail.
+            entry.quote = undefined;
+        }
+    } else if (tweet.quoted_status) {
         entry = {
             message: getTweetMessage(tweet, 'twitter', 'quoted'),
             media: getLinkMediaURL(getTweetURL(tweet)),
             tonne: {
                 action: 'quote'
             },
-            quote: convertTweet(tweet.quoted_status)
-        };
-    
-    } else if (tweet.retweeted_status) {
-        entry = {
-            message: getTweetHeader(tweet.user, 'retweet', 'retweeted'),
-            media: getLinkMediaURL(getTweetURL(tweet.retweeted_status)),
-            tonne: {
-                action: 'quote'
-            },
-            quote: convertTweet(tweet.retweeted_status)
+            quote: await convertTweet(tweet.quoted_status)
         };
     
     } else {
