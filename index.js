@@ -174,7 +174,7 @@ async function rotondeUpdated(feedKey, feedDat) {
             entry = feedEntry;
         });
 
-        if (!entry || entry.whisper)
+        if (!entry || entry.whisper || entry.message.indexOf(config.tonne.nomirror))
             return;
         
         console.log('Found new newest rotonde entry', entry);
@@ -221,7 +221,8 @@ async function rotondeUpdated(feedKey, feedDat) {
                 args.status = author + ' ' + args.status;
             
             args.in_reply_to_status_id = id;
-        }
+        } else if (entry.quote || entry.media)
+            return;
 
         twitter.post('statuses/update', args, function(err, tweet, raw) {
             if (err) {
@@ -438,14 +439,16 @@ function getTweetText(tweet) {
         return getTweetText(tweet.extended_tweet) || unescapeHTML(tweet.text);
     return unescapeHTML(tweet.full_text || tweet.text);
 }
-function getTweetHeader(user, icon, did) {
+function getTweetHeader(user, icon, did, url) {
     icon = icon ? `{%${icon}.svg%}` : '{%twitter.svg%}';
+    if (url)
+        icon = `{${icon}|${url}}`;
     did = did ? ` {*${did}*}` : '';
     var header = `${icon} {*${unescapeHTML(user.name)}*} {_@${user.screen_name}_}${did}`;
     return header;
 }
 function getTweetMessage(tweet, icon, did) {
-    return `${getTweetHeader(tweet.user, icon, did)}\n${getTweetText(tweet)}`;
+    return `${getTweetHeader(tweet.user, icon, did, getTweetURL(tweet))}\n${getTweetText(tweet)}`;
 }
 async function convertTweet(tweet) {
     if (!tweet)
